@@ -14,14 +14,15 @@ object Scheduler {
 
     class Next(val idx: Int, val timeMs: Long, val date: LocalDate)
 
-    /** nowMs'den sonraki ilk vakit (bugün, yarın veya öbür gün). */
-    fun next(loc: Loc, nowMs: Long): Next {
+    /** nowMs'den sonraki ilk vakit (önce Diyanet verisine bakar, yoksa yedek hesaplamayı kullanır). */
+    fun next(ctx: Context, nowMs: Long): Next {
+        val loc = Prefs.location(ctx)
         val today = Instant.ofEpochMilli(nowMs).atZone(loc.zone).toLocalDate()
         for (off in 0..2) {
             val d = today.plusDays(off.toLong())
-            val r = PrayerCalc.calc(d, loc.lat, loc.lng)
+            val times = DiyanetApi.getTimes(ctx, d, loc.zone) ?: PrayerCalc.calc(d, loc.lat, loc.lng).times
             for (i in 0 until 6) {
-                if (r.times[i] > nowMs) return Next(i, r.times[i], d)
+                if (times[i] > nowMs) return Next(i, times[i], d)
             }
         }
         return Next(0, nowMs + 3_600_000L, today)
@@ -30,8 +31,7 @@ object Scheduler {
     /** Bir sonraki vakit için alarmı kurar ve kalıcı bildirimi yeniler. */
     fun scheduleAll(ctx: Context) {
         val app = ctx.applicationContext
-        val loc = Prefs.location(app)
-        val n = next(loc, System.currentTimeMillis() + 1000L)
+        val n = next(app, System.currentTimeMillis() + 1000L)
         val am = app.getSystemService(AlarmManager::class.java)
         val intent = Intent(app, AdhanReceiver::class.java)
             .putExtra(EXTRA_IDX, n.idx)
