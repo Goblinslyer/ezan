@@ -49,8 +49,9 @@ object Scheduler {
             am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, n.timeMs, pi)
         }
         Notifier.updateTimes(app)
+        DiyanetApi.refreshIfNeeded(app) { scheduleAll(app) }
     }
-DiyanetApi.refreshIfNeeded(app) { scheduleAll(app) }
+
     fun canScheduleExact(ctx: Context): Boolean {
         if (Build.VERSION.SDK_INT < 31) return true
         return ctx.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
