@@ -46,11 +46,10 @@ object Notifier {
         ensureChannels(ctx)
         val loc = Prefs.location(ctx)
         val now = System.currentTimeMillis()
-        val nx = Scheduler.next(loc, now)
-        val r = PrayerCalc.calc(nx.date, loc.lat, loc.lng)
+      val nx = Scheduler.next(ctx, now)
+        val times = DiyanetApi.getTimes(ctx, nx.date, loc.zone) ?: PrayerCalc.calc(nx.date, loc.lat, loc.lng).times
         val fmt = DateTimeFormatter.ofPattern("HH:mm").withZone(loc.zone)
-        fun f(i: Int): String = if (r.times[i] > 0) fmt.format(Instant.ofEpochMilli(r.times[i])) else "—"
-
+        fun f(i: Int): String = if (times[i] > 0) fmt.format(Instant.ofEpochMilli(times[i])) else "—"
         val names = PrayerCalc.NAMES
         val tomorrow = nx.date.isAfter(LocalDate.now(loc.zone))
         val title = "Sıradaki: ${names[nx.idx]} ${f(nx.idx)}"
