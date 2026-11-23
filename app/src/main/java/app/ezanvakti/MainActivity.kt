@@ -2,7 +2,6 @@ package app.ezanvakti
 
 import android.Manifest
 import android.app.Activity
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
@@ -16,14 +15,12 @@ import android.os.Looper
 import android.os.PowerManager
 import android.provider.OpenableColumns
 import android.provider.Settings
-import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
-import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Spinner
@@ -65,24 +62,25 @@ class MainActivity : Activity() {
     private val fileTv = ArrayList<TextView>()
     private val switches = ArrayList<Switch>()
 
+    private lateinit var countrySpinner: Spinner
     private lateinit var citySpinner: Spinner
-    private lateinit var customPanel: LinearLayout
-    private lateinit var latEt: EditText
-    private lateinit var lngEt: EditText
-    private lateinit var tzEt: EditText
+    private lateinit var districtSpinner: Spinner
+    private lateinit var sourceTv: TextView
     private lateinit var nextName: TextView
     private lateinit var countdown: TextView
     private lateinit var nextMeta: TextView
     private lateinit var dateTv: TextView
     private lateinit var todayBtn: Button
-    private lateinit var approxTv: TextView
     private lateinit var statusTv: TextView
     private lateinit var exactBtn: Button
+
+    private var countries: List<DiyanetApi.Item> = emptyList()
+    private var cities: List<DiyanetApi.Item> = emptyList()
+    private var districts: List<DiyanetApi.Item> = emptyList()
 
     private lateinit var loc: Loc
     private var viewDate: LocalDate? = null
     private var shownDate: LocalDate = LocalDate.now()
-    private var result: PrayerCalc.Result? = null
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -108,7 +106,9 @@ class MainActivity : Activity() {
         ) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
         }
-        onLocationChanged()
+
+        loadCountries()
+        refreshTimes()
     }
 
     override fun onResume() {
@@ -127,6 +127,101 @@ class MainActivity : Activity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         Scheduler.scheduleAll(this)
         updateStatus()
+    }
+
+    // ---------------------------------------------------------------- Diyanet konum yükleme
+
+    private fun setSpinnerItems(spinner: Spinner, items: List<DiyanetApi.Item>, selectedId: String) {
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, items)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinner.adapter = adapter
+        val idx = items.indexOfFirst { it.id == selectedId }.coerceAtLeast(0)
+        if (items.isNotEmpty()) spinner.setSelection(idx, false)
+    }
+
+    private fun loadCountries() {
+        sourceTv.text = "Diyanet ülke listesi yükleniyor..."
+        Thread {
+            try {
+                val list = DiyanetApi.fetchCountries()
+                runOnUiThread {
+                    countries = list
+                    setSpinnerItems(countrySpinner, list, Prefs.countryId(this))
+                    val sel = list.firstOrNull { it.id == Prefs.countryId(this) } ?: list.firstOrNull()
+                    if (sel != null) loadCities(sel.id)
+                }
+            } catch (e: Exception) {
+                runOnUiThread { sourceTv.text = "İnternet bağlantısı yok (kayıtlı vakitler kullanılıyor)" }
+            }
+        }.start()
+    }
+
+    private fun loadCities(countryId: String) {
+        Thread {
+            try {
+                val list = DiyanetApi.fetchCities(countryId)
+                runOnUiThread {
+                    cities = list
+                    setSpinnerItems(citySpinner, list, Prefs.cityId(this))
+                    val sel = list.firstOrNull { it.id == Prefs.cityId(this) } ?: list.firstOrNull()
+                    if (sel != null) loadDistricts(sel.id)
+                }
+            } catch (e: Exception) {
+                runOnUiThread { sourceTv.text = "Şehir listesi alınamadı" }
+            }
+        }.start()
+    }
+
+    private fun loadDistricts(cityId: String) {
+        Thread {
+            try {
+                val list = DiyanetApi.fetchDistricts(cityId)
+                runOnUiThread {
+                    districts = list
+                    setSpinnerItems(districtSpinner, list, Prefs.districtId(this))
+                    val sel = list.firstOrNull { it.id == Prefs.districtId(this) } ?: list.firstOrNull()
+                    if (sel != null && Prefs.diyanetJson(this) == null) {
+                        fetchTimesFor(sel.id, sel.name)
+                    } else {
+                        updateSourceLabel()
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread { sourceTv.text = "İlçe listesi alınamadı" }
+            }
+        }.start()
+    }
+
+    private fun fetchTimesFor(districtId: String, districtName: String) {
+        val cId = (countrySpinner.selectedItem as? DiyanetApi.Item)?.id ?: Prefs.countryId(this)
+        val sId = (citySpinner.selectedItem as? DiyanetApi.Item)?.id ?: Prefs.cityId(this)
+        sourceTv.text = "Diyanet vakitleri indiriliyor ($districtName)..."
+        Thread {
+            val ok = DiyanetApi.fetchAndCacheTimes(this, districtId)
+            runOnUiThread {
+                if (ok) {
+                    Prefs.setDiyanetLocation(this, cId, sId, districtId, districtName)
+                    loc = Prefs.location(this)
+                    viewDate = null
+                    Scheduler.scheduleAll(this)
+                    refreshTimes()
+                    tick()
+                    Toast.makeText(this, "$districtName vakitleri güncellendi", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "Vakitler indirilemedi, interneti kontrol edin", Toast.LENGTH_LONG).show()
+                }
+                updateSourceLabel()
+            }
+        }.start()
+    }
+
+    private fun updateSourceLabel() {
+        val hasDiyanet = DiyanetApi.getTimes(this, LocalDate.now(loc.zone), loc.zone) != null
+        sourceTv.text = if (hasDiyanet) {
+            "Kaynak: Diyanet Resmî Takvimi (${Prefs.districtName(this)})"
+        } else {
+            "Diyanet verisi indirilmedi · 'Vakitleri güncelle' butonuna basın"
+        }
     }
 
     // ---------------------------------------------------------------- arayüz
@@ -168,17 +263,6 @@ class MainActivity : Activity() {
         return b
     }
 
-    private fun input(hint: String, type: Int, value: String): EditText {
-        val e = EditText(this)
-        e.hint = hint
-        e.inputType = type
-        e.setText(value)
-        e.setTextColor(cInk)
-        e.setHintTextColor(cMuted)
-        e.setSingleLine(true)
-        return e
-    }
-
     private fun buildUi(): View {
         val scroll = ScrollView(this)
         scroll.setBackgroundColor(cBg)
@@ -187,42 +271,47 @@ class MainActivity : Activity() {
         root.setPadding(dp(16), dp(20), dp(16), dp(32))
         scroll.addView(root)
 
-        // Konum
-        root.addView(tv("KONUM", 12f, cMuted, true), lp())
-        val names = ArrayList<String>(Cities.ALL.map { it.name })
-        names.add("Özel koordinat…")
+        // Konum (Ülke / Şehir / İlçe)
+        root.addView(tv("KONUM (DİYANET)", 12f, cMuted, true), lp())
+
+        countrySpinner = Spinner(this)
         citySpinner = Spinner(this)
-        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, names)
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        citySpinner.adapter = adapter
-        citySpinner.setSelection(Prefs.cityIndex(this).coerceIn(0, names.size - 1), false)
-        citySpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, pos: Int, id: Long) {
-                if (pos == Prefs.cityIndex(this@MainActivity)) return
-                Prefs.setCityIndex(this@MainActivity, pos)
-                viewDate = null
-                onLocationChanged()
+        districtSpinner = Spinner(this)
+
+        countrySpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                val item = countries.getOrNull(pos) ?: return
+                loadCities(item.id)
             }
-
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
+            override fun onNothingSelected(p: AdapterView<*>?) {}
         }
-        root.addView(citySpinner, lp(4))
+        citySpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                val item = cities.getOrNull(pos) ?: return
+                loadDistricts(item.id)
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+        districtSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                val item = districts.getOrNull(pos) ?: return
+                if (item.id != Prefs.districtId(this@MainActivity) || Prefs.diyanetJson(this@MainActivity) == null) {
+                    fetchTimesFor(item.id, item.name)
+                }
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
 
-        customPanel = LinearLayout(this)
-        customPanel.orientation = LinearLayout.VERTICAL
-        val decimal = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
-        latEt = input("Enlem (örn. 52.3676)", decimal, Prefs.customLat(this))
-        lngEt = input("Boylam (örn. 4.9041)", decimal, Prefs.customLng(this))
-        tzEt = input("Saat dilimi (örn. Europe/Amsterdam)", InputType.TYPE_CLASS_TEXT, Prefs.customTz(this))
-        customPanel.addView(latEt, lp())
-        customPanel.addView(lngEt, lp())
-        customPanel.addView(tzEt, lp())
-        customPanel.addView(button("Uygula") {
-            Prefs.setCustom(this, latEt.text.toString(), lngEt.text.toString(), tzEt.text.toString())
-            viewDate = null
-            onLocationChanged()
+        root.addView(countrySpinner, lp(4))
+        root.addView(citySpinner, lp(4))
+        root.addView(districtSpinner, lp(4))
+        root.addView(button("Vakitleri Diyanet'ten güncelle") {
+            val d = districtSpinner.selectedItem as? DiyanetApi.Item
+            if (d != null) fetchTimesFor(d.id, d.name) else loadCountries()
         }, lp(4))
-        root.addView(customPanel, lp(4))
+
+        sourceTv = tv("", 12f, cMuted)
+        root.addView(sourceTv, lp(4))
 
         // Sıradaki vakit
         val nowCard = LinearLayout(this)
@@ -254,12 +343,6 @@ class MainActivity : Activity() {
         dateBar.addView(mid, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         dateBar.addView(button("›") { shiftDay(1) })
         root.addView(dateBar, lp(8))
-
-        approxTv = tv(
-            "Bu konumda yaz aylarında güneş 17°-18° açıya inmiyor; İmsak ve Yatsı gecenin oranıyla yaklaşık hesaplandı.",
-            12f, cMuted
-        )
-        root.addView(approxTv, lp(4))
 
         // Altı vakit
         for (i in 0 until 6) {
@@ -335,33 +418,10 @@ class MainActivity : Activity() {
             }
         }, lp(4))
 
-        root.addView(
-            tv(
-                "Samsung: Ayarlar > Pil > Arka plan kullanım sınırları > Uyku modundaki uygulamalar listesinde " +
-                    "Ezan Vakti olmasın, ve \"Hiç uyumayan uygulamalar\" listesine ekleyin. Aksi halde telefon uygulamayı " +
-                    "kısıtlayıp ezanı geciktirebilir.",
-                12f, cMuted
-            ), lp(12)
-        )
-        root.addView(
-            tv(
-                "Hesaplama: İmsak 18°, Yatsı 17°; Diyanet ihtiyat payları (Güneş -7, Öğle +5, İkindi +4, Akşam +7 dk). " +
-                    "Diyanet tablolarıyla 1-2 dakika ayrılabilir; ibadet için resmî takvimi esas alın.",
-                12f, cMuted
-            ), lp(10)
-        )
         return scroll
     }
 
     // ---------------------------------------------------------------- durum
-
-    private fun onLocationChanged() {
-        loc = Prefs.location(this)
-        customPanel.visibility = if (Prefs.cityIndex(this) == Cities.CUSTOM_INDEX) View.VISIBLE else View.GONE
-        Scheduler.scheduleAll(this)
-        refreshTimes()
-        tick()
-    }
 
     private fun shiftDay(n: Int) {
         val base = viewDate ?: LocalDate.now(loc.zone)
@@ -374,23 +434,21 @@ class MainActivity : Activity() {
         val today = LocalDate.now(loc.zone)
         val date = viewDate ?: today
         shownDate = today
-        val r = PrayerCalc.calc(date, loc.lat, loc.lng)
-        result = r
+        val times = DiyanetApi.getTimes(this, date, loc.zone) ?: PrayerCalc.calc(date, loc.lat, loc.lng).times
         val isToday = date == today
         val now = System.currentTimeMillis()
 
         dateTv.text = DateTimeFormatter.ofLocalizedDate(FormatStyle.FULL)
             .withLocale(Locale("tr", "TR")).format(date)
         todayBtn.visibility = if (isToday) View.GONE else View.VISIBLE
-        approxTv.visibility = if (r.approx) View.VISIBLE else View.GONE
 
         var cur = -1
         if (isToday) {
-            for (i in 0 until 6) if (r.times[i] in 1..now) cur = i
+            for (i in 0 until 6) if (times[i] in 1..now) cur = i
         }
         val fmt = DateTimeFormatter.ofPattern("HH:mm").withZone(loc.zone)
         for (i in 0 until 6) {
-            timeTv[i].text = if (r.times[i] > 0) fmt.format(Instant.ofEpochMilli(r.times[i])) else "—"
+            timeTv[i].text = if (times[i] > 0) fmt.format(Instant.ofEpochMilli(times[i])) else "—"
             val past = isToday && i < cur
             timeTv[i].setTextColor(if (past) cMuted else cInk)
             val bg = GradientDrawable()
@@ -406,7 +464,7 @@ class MainActivity : Activity() {
     private fun tick() {
         val now = System.currentTimeMillis()
         if (LocalDate.now(loc.zone) != shownDate && viewDate == null) refreshTimes()
-        val nx = Scheduler.next(loc, now)
+        val nx = Scheduler.next(this, now)
         val s = ((nx.timeMs - now) / 1000L).coerceAtLeast(0L)
         nextName.text = PrayerCalc.NAMES[nx.idx]
         countdown.text = String.format(Locale.US, "%02d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
