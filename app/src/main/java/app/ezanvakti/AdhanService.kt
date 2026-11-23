@@ -3,7 +3,10 @@ package app.ezanvakti
 import android.app.Notification
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.graphics.drawable.Icon
 import android.media.AudioAttributes
@@ -23,6 +26,15 @@ class AdhanService : Service() {
     private var focus: AudioFocusRequest? = null
     private val handler = Handler(Looper.getMainLooper())
     private val timeout = Runnable { finish() }
+    private var screenReceiverRegistered = false
+
+    private val screenOffReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == Intent.ACTION_SCREEN_OFF) {
+                finish()
+            }
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -56,8 +68,30 @@ class AdhanService : Service() {
         } else {
             startForeground(Notifier.ID_ADHAN, note)
         }
+        registerScreenOff()
         startPlayback(idx)
         return START_NOT_STICKY
+    }
+
+    private fun registerScreenOff() {
+        if (screenReceiverRegistered) return
+        val filter = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(screenOffReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(screenOffReceiver, filter)
+        }
+        screenReceiverRegistered = true
+    }
+
+    private fun unregisterScreenOff() {
+        if (!screenReceiverRegistered) return
+        try {
+            unregisterReceiver(screenOffReceiver)
+        } catch (e: Exception) {
+            // zaten kaldırılmışsa yok say
+        }
+        screenReceiverRegistered = false
     }
 
     private fun startPlayback(idx: Int) {
@@ -108,6 +142,7 @@ class AdhanService : Service() {
 
     private fun finish() {
         handler.removeCallbacks(timeout)
+        unregisterScreenOff()
         releasePlayer()
         focus?.let { getSystemService(AudioManager::class.java).abandonAudioFocusRequest(it) }
         focus = null
@@ -118,6 +153,7 @@ class AdhanService : Service() {
 
     override fun onDestroy() {
         handler.removeCallbacks(timeout)
+        unregisterScreenOff()
         releasePlayer()
         super.onDestroy()
     }
