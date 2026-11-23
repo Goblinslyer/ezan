@@ -4,39 +4,30 @@ import android.content.Context
 import android.content.SharedPreferences
 import java.io.File
 import java.time.ZoneId
-import kotlin.math.abs
 
 object Prefs {
     private fun sp(c: Context): SharedPreferences =
         c.applicationContext.getSharedPreferences("ezan", Context.MODE_PRIVATE)
 
-    private fun defaultCity(): Int {
-        val id = ZoneId.systemDefault().id
-        val i = Cities.ALL.indexOfFirst { it.tz == id }
-        return if (i >= 0) i else 0
+    fun countryId(c: Context): String = sp(c).getString("d_country", "2") ?: "2"
+    fun cityId(c: Context): String = sp(c).getString("d_city", "539") ?: "539"
+    fun districtId(c: Context): String = sp(c).getString("d_district", "9541") ?: "9541"
+    fun districtName(c: Context): String = sp(c).getString("d_name", "İSTANBUL") ?: "İSTANBUL"
+
+    fun setDiyanetLocation(c: Context, countryId: String, cityId: String, districtId: String, name: String) {
+        sp(c).edit()
+            .putString("d_country", countryId)
+            .putString("d_city", cityId)
+            .putString("d_district", districtId)
+            .putString("d_name", name)
+            .apply()
     }
 
-    fun cityIndex(c: Context): Int = sp(c).getInt("city", defaultCity())
-    fun setCityIndex(c: Context, i: Int) = sp(c).edit().putInt("city", i).apply()
-
-    fun customLat(c: Context): String = sp(c).getString("clat", "52.3676") ?: ""
-    fun customLng(c: Context): String = sp(c).getString("clng", "4.9041") ?: ""
-    fun customTz(c: Context): String = sp(c).getString("ctz", "Europe/Amsterdam") ?: ""
-    fun setCustom(c: Context, lat: String, lng: String, tz: String) =
-        sp(c).edit().putString("clat", lat).putString("clng", lng).putString("ctz", tz).apply()
+    fun diyanetJson(c: Context): String? = sp(c).getString("d_json", null)
+    fun setDiyanetJson(c: Context, json: String) = sp(c).edit().putString("d_json", json).apply()
 
     fun location(c: Context): Loc {
-        val idx = cityIndex(c)
-        if (idx == Cities.CUSTOM_INDEX) {
-            val lat = customLat(c).trim().toDoubleOrNull()
-            val lng = customLng(c).trim().toDoubleOrNull()
-            val zone = try { ZoneId.of(customTz(c).trim()) } catch (e: Exception) { ZoneId.systemDefault() }
-            if (lat != null && lng != null && abs(lat) <= 90 && abs(lng) <= 180) {
-                return Loc("Özel konum", lat, lng, zone)
-            }
-        }
-        val city = Cities.ALL[if (idx in Cities.ALL.indices) idx else 0]
-        return Loc(city.name, city.lat, city.lng, ZoneId.of(city.tz))
+        return Loc(districtName(c), 41.0082, 28.9784, ZoneId.systemDefault())
     }
 
     /** Güneş vakti için varsayılan kapalı (ezan okunmaz). */
