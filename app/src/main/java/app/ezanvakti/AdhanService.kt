@@ -28,6 +28,8 @@ class AdhanService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private val timeout = Runnable { finish() }
     private var screenReceiverRegistered = false
+    private var savedStream: Int? = null
+    private var savedStreamVol: Int? = null
 
     private val screenOffReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -69,6 +71,7 @@ class AdhanService : Service() {
         } else {
             startForeground(Notifier.ID_ADHAN, note)
         }
+        active = this
         registerScreenOff()
         startPlayback(idx)
         return START_NOT_STICKY
@@ -93,6 +96,43 @@ class AdhanService : Service() {
             // zaten kaldırılmışsa yok say
         }
         screenReceiverRegistered = false
+    }
+
+    private fun applyVolume(pct: Int, mp: MediaPlayer? = player) {
+        val stream = if (Prefs.alarmStream(this)) AudioManager.STREAM_ALARM else AudioManager.STREAM_MUSIC
+        val am = getSystemService(AudioManager::class.java)
+        try {
+            if (savedStream != null && savedStream != stream) restoreVolume()
+            if (savedStream == null) {
+                savedStream = stream
+                savedStreamVol = am.getStreamVolume(stream)
+            }
+            val max = am.getStreamMaxVolume(stream)
+            val target = if (pct <= 0) 0 else ((max * pct + 50) / 100).coerceIn(1, max)
+            am.setStreamVolume(stream, target, 0)
+            mp?.setVolume(1f, 1f)
+        } catch (e: Exception) {
+            val f = (pct / 100f).coerceIn(0f, 1f)
+            try {
+                mp?.setVolume(f, f)
+            } catch (_: Exception) {
+                // yok say
+            }
+        }
+    }
+
+    private fun restoreVolume() {
+        val s = savedStream
+        val v = savedStreamVol
+        if (s != null && v != null) {
+            try {
+                getSystemService(AudioManager::class.java).setStreamVolume(s, v, 0)
+            } catch (e: Exception) {
+                // yok say
+            }
+        }
+        savedStream = null
+        savedStreamVol = null
     }
 
     private fun startPlayback(idx: Int) {
@@ -131,6 +171,7 @@ class AdhanService : Service() {
                 }
                 else -> mp.setDataSource(this, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
             }
+            applyVolume(Prefs.volume(this), mp)
             mp.setOnPreparedListener { it.start() }
             mp.setOnCompletionListener { finish() }
             mp.setOnErrorListener { _, _, _ -> finish(); true }
@@ -153,9 +194,11 @@ class AdhanService : Service() {
     }
 
     private fun finish() {
+        if (active === this) active = null
         handler.removeCallbacks(timeout)
         unregisterScreenOff()
         releasePlayer()
+        restoreVolume()
         focus?.let { getSystemService(AudioManager::class.java).abandonAudioFocusRequest(it) }
         focus = null
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -164,13 +207,21 @@ class AdhanService : Service() {
     }
 
     override fun onDestroy() {
+        if (active === this) active = null
         handler.removeCallbacks(timeout)
         unregisterScreenOff()
         releasePlayer()
+        restoreVolume()
         super.onDestroy()
     }
 
     companion object {
         const val ACTION_STOP = "app.ezanvakti.STOP"
+        @Volatile
+        private var active: AdhanService? = null
+
+        fun updateLiveVolume(pct: Int) {
+            active?.applyVolume(pct)
+        }
     }
 }
