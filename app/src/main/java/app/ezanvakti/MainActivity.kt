@@ -23,6 +23,7 @@ import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.Spinner
 import android.widget.Switch
 import android.widget.TextView
@@ -398,12 +399,31 @@ class MainActivity : Activity() {
 
         // Ayarlar ve durum
         root.addView(tv("AYARLAR", 12f, cMuted, true), lp(24))
+
+        val volLabel = tv("Ezan ses seviyesi: %${Prefs.volume(this)}", 14f, cInk)
+        root.addView(volLabel, lp(10))
+        val volBar = SeekBar(this)
+        volBar.max = 100
+        volBar.progress = Prefs.volume(this)
+        volBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
+                volLabel.text = "Ezan ses seviyesi: %$progress"
+                if (fromUser) {
+                    Prefs.setVolume(this@MainActivity, progress)
+                    AdhanService.updateLiveVolume(progress)
+                }
+            }
+            override fun onStartTrackingTouch(sb: SeekBar?) {}
+            override fun onStopTrackingTouch(sb: SeekBar?) {}
+        })
+        root.addView(volBar, lp(4))
+
         val streamSw = Switch(this)
         streamSw.text = "Alarm ses kanalından çal (sessiz modda da duyulur)"
         streamSw.setTextColor(cInk)
         streamSw.isChecked = Prefs.alarmStream(this)
         streamSw.setOnCheckedChangeListener { _, on -> Prefs.setAlarmStream(this, on) }
-        root.addView(streamSw, lp(8))
+        root.addView(streamSw, lp(12))
         root.addView(button("Çalan ezanı durdur") {
             startService(Intent(this, AdhanService::class.java).setAction(AdhanService.ACTION_STOP))
         }, lp(8))
