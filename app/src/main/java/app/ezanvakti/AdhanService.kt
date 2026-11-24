@@ -90,7 +90,7 @@ class AdhanService : Service() {
         try {
             unregisterReceiver(screenOffReceiver)
         } catch (e: Exception) {
-            // yok say
+            // zaten kaldırılmışsa yok say
         }
         screenReceiverRegistered = false
     }
@@ -123,7 +123,8 @@ class AdhanService : Service() {
                             mp.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
                         }
                     } catch (e: Exception) {
-                        val tmp = File(cacheDir, "def_$idx")
+                        val ext = asset.substringAfterLast('.', "opus")
+                        val tmp = File(cacheDir, "def_$idx.$ext")
                         assets.open(asset).use { inp -> tmp.outputStream().use { out -> inp.copyTo(out) } }
                         mp.setDataSource(tmp.absolutePath)
                     }
