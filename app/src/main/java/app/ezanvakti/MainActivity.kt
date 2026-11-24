@@ -60,6 +60,7 @@ class MainActivity : Activity() {
     private val cards = ArrayList<LinearLayout>()
     private val timeTv = ArrayList<TextView>()
     private val fileTv = ArrayList<TextView>()
+    private val resetBtns = ArrayList<Button>()
     private val switches = ArrayList<Switch>()
 
     private lateinit var countrySpinner: Spinner
@@ -375,6 +376,13 @@ class MainActivity : Activity() {
             ctl.addView(button("Dene") { preview(i) })
             c.addView(ctl, lp(4))
 
+            val rst = button("Varsayılan sese dön") {
+                Prefs.clearAudio(this, i)
+                refreshTimes()
+            }
+            resetBtns.add(rst)
+            c.addView(rst, lp(4))
+
             cards.add(c)
             root.addView(c, lp(10))
         }
@@ -456,8 +464,15 @@ class MainActivity : Activity() {
             bg.cornerRadius = dp(12).toFloat()
             bg.setStroke(dp(1), cLine)
             cards[i].background = bg
-            val name = Prefs.audioName(this, i)
-            fileTv[i].text = if (name != null) "Ses: $name" else "Ses dosyası seçilmedi"
+
+            val customName = Prefs.audioName(this, i)
+            val defAsset = Prefs.defaultAsset(this, i)
+            fileTv[i].text = when {
+                customName != null -> "Özel ses: $customName"
+                defAsset != null -> "Varsayılan ses: ${defAsset.substringAfterLast('/')}"
+                else -> "Ses dosyası seçilmedi (sistem sesi)"
+            }
+            resetBtns[i].visibility = if (customName != null) View.VISIBLE else View.GONE
         }
     }
 
@@ -500,8 +515,8 @@ class MainActivity : Activity() {
     }
 
     private fun preview(i: Int) {
-        if (Prefs.audioPath(this, i) == null) {
-            Toast.makeText(this, "Önce bu vakit için bir ses dosyası seçin", Toast.LENGTH_LONG).show()
+        if (Prefs.audioPath(this, i) == null && Prefs.defaultAsset(this, i) == null) {
+            Toast.makeText(this, "Bu vakit için gömülü veya seçili ses yok", Toast.LENGTH_LONG).show()
             return
         }
         startForegroundService(Intent(this, AdhanService::class.java).putExtra(Scheduler.EXTRA_IDX, i))
