@@ -19,6 +19,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import java.io.File
 
 /** Ezanı ön plan servisi olarak çalar, böylece uygulama kapalıyken de ses devam eder. */
 class AdhanService : Service() {
@@ -89,7 +90,7 @@ class AdhanService : Service() {
         try {
             unregisterReceiver(screenOffReceiver)
         } catch (e: Exception) {
-            // zaten kaldırılmışsa yok say
+            // yok say
         }
         screenReceiverRegistered = false
     }
@@ -113,11 +114,21 @@ class AdhanService : Service() {
             mp.setAudioAttributes(attrs)
             mp.setWakeMode(applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
             val path = Prefs.audioPath(this, idx)
-            if (path != null) {
-                mp.setDataSource(path)
-            } else {
-                // Ses dosyası seçilmemişse sistemin varsayılan bildirim sesi çalar.
-                mp.setDataSource(this, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
+            val asset = Prefs.defaultAsset(this, idx)
+            when {
+                path != null -> mp.setDataSource(path)
+                asset != null -> {
+                    try {
+                        assets.openFd(asset).use { afd ->
+                            mp.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                        }
+                    } catch (e: Exception) {
+                        val tmp = File(cacheDir, "def_$idx")
+                        assets.open(asset).use { inp -> tmp.outputStream().use { out -> inp.copyTo(out) } }
+                        mp.setDataSource(tmp.absolutePath)
+                    }
+                }
+                else -> mp.setDataSource(this, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
             }
             mp.setOnPreparedListener { it.start() }
             mp.setOnCompletionListener { finish() }
