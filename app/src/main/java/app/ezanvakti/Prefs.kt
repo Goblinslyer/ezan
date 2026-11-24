@@ -6,6 +6,8 @@ import java.io.File
 import java.time.ZoneId
 
 object Prefs {
+    private val ASSET_KEYS = arrayOf("sabah", "gunes", "ogle", "ikindi", "aksam", "yatsi")
+
     private fun sp(c: Context): SharedPreferences =
         c.applicationContext.getSharedPreferences("ezan", Context.MODE_PRIVATE)
 
@@ -39,6 +41,17 @@ object Prefs {
 
     fun audioName(c: Context, i: Int): String? =
         if (audioPath(c, i) != null) sp(c).getString("name_$i", null) else null
+
+    /** assets/ezan/ içindeki gömülü varsayılan ses dosyasını bulur. */
+    fun defaultAsset(c: Context, i: Int): String? {
+        val list = try { c.assets.list("ezan") } catch (e: Exception) { null } ?: return null
+        val key = ASSET_KEYS.getOrNull(i) ?: return null
+        val exact = list.firstOrNull { it.substringBeforeLast('.').equals(key, ignoreCase = true) }
+        if (exact != null) return "ezan/$exact"
+        if (i == 1) return null
+        val fallback = list.firstOrNull { it.substringBeforeLast('.').equals("varsayilan", ignoreCase = true) }
+        return fallback?.let { "ezan/$it" }
+    }
 
     fun setAudio(c: Context, i: Int, path: String, name: String) =
         sp(c).edit().putString("file_$i", path).putString("name_$i", name).apply()
