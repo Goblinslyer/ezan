@@ -92,4 +92,8 @@ object Prefs {
     /** true: alarm ses kanalı (sessiz modda da duyulur), false: medya kanalı. */
     fun alarmStream(c: Context): Boolean = sp(c).getBoolean("alarm_stream", true)
     fun setAlarmStream(c: Context, on: Boolean) = sp(c).edit().putBoolean("alarm_stream", on).apply()
+
+    /** Ezan ses seviyesi (0..100). */
+    fun volume(c: Context): Int = sp(c).getInt("volume", 80).coerceIn(0, 100)
+    fun setVolume(c: Context, v: Int) = sp(c).edit().putInt("volume", v.coerceIn(0, 100)).apply()
 }
