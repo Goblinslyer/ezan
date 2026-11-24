@@ -4,9 +4,11 @@ import android.content.Context
 import android.content.SharedPreferences
 import java.io.File
 import java.time.ZoneId
+import java.util.Locale
 
 object Prefs {
     private val ASSET_KEYS = arrayOf("sabah", "gunes", "ogle", "ikindi", "aksam", "yatsi")
+    private val AUDIO_EXTS = setOf("mp3", "m4a", "ogg", "wav", "aac", "opus")
 
     private fun sp(c: Context): SharedPreferences =
         c.applicationContext.getSharedPreferences("ezan", Context.MODE_PRIVATE)
@@ -42,15 +44,41 @@ object Prefs {
     fun audioName(c: Context, i: Int): String? =
         if (audioPath(c, i) != null) sp(c).getString("name_$i", null) else null
 
-    /** assets/ezan/ içindeki gömülü varsayılan ses dosyasını bulur. */
+    private fun normalize(s: String): String = s
+        .replace('İ', 'i').replace('I', 'i').replace('ı', 'i')
+        .replace('Ö', 'o').replace('ö', 'o')
+        .replace('Ü', 'u').replace('ü', 'u')
+        .replace('Ş', 's').replace('ş', 's')
+        .replace('Ğ', 'g').replace('ğ', 'g')
+        .replace('Ç', 'c').replace('ç', 'c')
+        .lowercase(Locale.US)
+
+    private fun isAudioFile(name: String): Boolean =
+        name.substringAfterLast('.', "").lowercase(Locale.US) in AUDIO_EXTS
+
+    /** assets/ezan/ (veya doğrudan assets/) içindeki gömülü ses dosyasını esnek şekilde bulur. */
     fun defaultAsset(c: Context, i: Int): String? {
-        val list = try { c.assets.list("ezan") } catch (e: Exception) { null } ?: return null
-        val key = ASSET_KEYS.getOrNull(i) ?: return null
-        val exact = list.firstOrNull { it.substringBeforeLast('.').equals(key, ignoreCase = true) }
-        if (exact != null) return "ezan/$exact"
-        if (i == 1) return null
-        val fallback = list.firstOrNull { it.substringBeforeLast('.').equals("varsayilan", ignoreCase = true) }
-        return fallback?.let { "ezan/$it" }
+        val dirs = listOf("ezan", "")
+        for (dir in dirs) {
+            val raw = try { c.assets.list(dir) } catch (e: Exception) { null } ?: continue
+            val audioFiles = raw.filter { isAudioFile(it) }
+            if (audioFiles.isEmpty()) continue
+
+            val prefix = if (dir.isEmpty()) "" else "$dir/"
+            val key = ASSET_KEYS.getOrNull(i)
+            if (key != null) {
+                val matched = audioFiles.firstOrNull {
+                    normalize(it.substringBeforeLast('.')).contains(key)
+                }
+                if (matched != null) return "$prefix$matched"
+            }
+            if (i == 1) return null
+            val fallback = audioFiles.firstOrNull {
+                normalize(it.substringBeforeLast('.')).contains("varsayilan")
+            } ?: audioFiles.firstOrNull()
+            if (fallback != null) return "$prefix$fallback"
+        }
+        return null
     }
 
     fun setAudio(c: Context, i: Int, path: String, name: String) =
