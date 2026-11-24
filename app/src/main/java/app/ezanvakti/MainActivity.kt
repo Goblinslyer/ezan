@@ -78,6 +78,8 @@ class MainActivity : Activity() {
     private var countries: List<DiyanetApi.Item> = emptyList()
     private var cities: List<DiyanetApi.Item> = emptyList()
     private var districts: List<DiyanetApi.Item> = emptyList()
+    private var selectedCountryId: String? = null
+    private var selectedCityId: String? = null
 
     private lateinit var loc: Loc
     private var viewDate: LocalDate? = null
@@ -147,8 +149,9 @@ class MainActivity : Activity() {
                 val list = DiyanetApi.fetchCountries()
                 runOnUiThread {
                     countries = list
-                    setSpinnerItems(countrySpinner, list, Prefs.countryId(this))
                     val sel = list.firstOrNull { it.id == Prefs.countryId(this) } ?: list.firstOrNull()
+                    selectedCountryId = sel?.id
+                    setSpinnerItems(countrySpinner, list, sel?.id ?: "")
                     if (sel != null) loadCities(sel.id)
                 }
             } catch (e: Exception) {
@@ -163,8 +166,9 @@ class MainActivity : Activity() {
                 val list = DiyanetApi.fetchCities(countryId)
                 runOnUiThread {
                     cities = list
-                    setSpinnerItems(citySpinner, list, Prefs.cityId(this))
                     val sel = list.firstOrNull { it.id == Prefs.cityId(this) } ?: list.firstOrNull()
+                    selectedCityId = sel?.id
+                    setSpinnerItems(citySpinner, list, sel?.id ?: "")
                     if (sel != null) loadDistricts(sel.id)
                 }
             } catch (e: Exception) {
@@ -179,8 +183,8 @@ class MainActivity : Activity() {
                 val list = DiyanetApi.fetchDistricts(cityId)
                 runOnUiThread {
                     districts = list
-                    setSpinnerItems(districtSpinner, list, Prefs.districtId(this))
                     val sel = list.firstOrNull { it.id == Prefs.districtId(this) } ?: list.firstOrNull()
+                    setSpinnerItems(districtSpinner, list, sel?.id ?: "")
                     if (sel != null && Prefs.diyanetJson(this) == null) {
                         fetchTimesFor(sel.id, sel.name)
                     } else {
@@ -282,6 +286,9 @@ class MainActivity : Activity() {
         countrySpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
                 val item = countries.getOrNull(pos) ?: return
+                if (item.id == selectedCountryId) return
+                selectedCountryId = item.id
+                selectedCityId = null
                 loadCities(item.id)
             }
             override fun onNothingSelected(p: AdapterView<*>?) {}
@@ -289,6 +296,8 @@ class MainActivity : Activity() {
         citySpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
                 val item = cities.getOrNull(pos) ?: return
+                if (item.id == selectedCityId) return
+                selectedCityId = item.id
                 loadDistricts(item.id)
             }
             override fun onNothingSelected(p: AdapterView<*>?) {}
