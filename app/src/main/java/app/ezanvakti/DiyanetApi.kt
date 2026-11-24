@@ -4,10 +4,12 @@ import android.content.Context
 import org.json.JSONArray
 import java.net.HttpURLConnection
 import java.net.URL
+import java.text.Collator
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 object DiyanetApi {
     private const val BASE = "https://ezanvakti.emushaf.net"
@@ -15,6 +17,11 @@ object DiyanetApi {
 
     data class Item(val id: String, val name: String) {
         override fun toString(): String = name
+    }
+
+    private fun List<Item>.sortTr(): List<Item> {
+        val collator = Collator.getInstance(Locale("tr", "TR"))
+        return sortedWith { a, b -> collator.compare(a.name, b.name) }
     }
 
     private fun getJson(path: String): String {
@@ -40,7 +47,7 @@ object DiyanetApi {
         return List(arr.length()) { i ->
             val o = arr.getJSONObject(i)
             Item(o.getString("UlkeID"), o.getString("UlkeAdi"))
-        }
+        }.sortTr()
     }
 
     fun fetchCities(countryId: String): List<Item> {
@@ -48,7 +55,7 @@ object DiyanetApi {
         return List(arr.length()) { i ->
             val o = arr.getJSONObject(i)
             Item(o.getString("SehirID"), o.getString("SehirAdi"))
-        }
+        }.sortTr()
     }
 
     fun fetchDistricts(cityId: String): List<Item> {
@@ -56,7 +63,7 @@ object DiyanetApi {
         return List(arr.length()) { i ->
             val o = arr.getJSONObject(i)
             Item(o.getString("IlceID"), o.getString("IlceAdi"))
-        }
+        }.sortTr()
     }
 
     /** Seçili ilçe için 30 günlük resmî Diyanet vakitlerini indirir ve telefona kaydeder. */
@@ -106,14 +113,15 @@ object DiyanetApi {
             -1L
         }
     }
-private var lastAutoFetch = 0L
+
+    private var lastAutoFetch = 0L
 
     /** Eldeki Diyanet verisinin bitmesine 3 günden az kaldıysa arka planda yeni 30 günü indirir. */
     fun refreshIfNeeded(ctx: Context, onUpdated: () -> Unit) {
         val now = System.currentTimeMillis()
-        if (now - lastAutoFetch < 6 * 60 * 60 * 1000L) return // En fazla 6 saatte bir dener
+        if (now - lastAutoFetch < 6 * 60 * 60 * 1000L) return
         val checkDate = LocalDate.now(ZoneId.systemDefault()).plusDays(3)
-        if (getTimes(ctx, checkDate) != null) return // 3 gün sonrası hâlâ var, gerek yok
+        if (getTimes(ctx, checkDate) != null) return
 
         lastAutoFetch = now
         val app = ctx.applicationContext
@@ -122,4 +130,5 @@ private var lastAutoFetch = 0L
                 onUpdated()
             }
         }.start()
-    }}
+    }
+}
