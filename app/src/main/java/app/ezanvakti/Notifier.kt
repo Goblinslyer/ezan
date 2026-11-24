@@ -7,6 +7,8 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.media.RingtoneManager
+import android.os.SystemClock
+import android.widget.RemoteViews
 import java.time.Instant
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -21,6 +23,7 @@ object Notifier {
     const val ACTION_REFRESH = "app.ezanvakti.REFRESH_NOTIF"
 
     private const val ACCENT = 0xFF0B6B66.toInt()
+    private const val ACCENT_TEXT = 0xFF2EB8A6.toInt()
 
     fun ensureChannels(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
@@ -47,7 +50,7 @@ object Notifier {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
 
-    /** Bildirim panelindeki kalıcı vakit kartı. */
+    /** Bildirim panelindeki özel tasarımlı kalıcı vakit kartı. */
     fun buildTimes(ctx: Context): Notification {
         ensureChannels(ctx)
         val loc = Prefs.location(ctx)
@@ -59,29 +62,39 @@ object Notifier {
 
         val names = PrayerCalc.NAMES
         val tomorrow = nx.date.isAfter(LocalDate.now(loc.zone))
-        val title = "Sıradaki: ${names[nx.idx]}"
-        val collapsedText = "Vakit saati: ${f(nx.idx)} · Diğer vakitler için aşağı çekin"
+        val base = SystemClock.elapsedRealtime() + (nx.timeMs - now).coerceAtLeast(0L)
 
-        val big = StringBuilder()
+        // Kapalı görünüm: sadece sıradaki vakit + büyük geri sayım
+        val small = RemoteViews(ctx.packageName, R.layout.notif_collapsed)
+        small.setTextViewText(R.id.n_next_name, names[nx.idx])
+        small.setChronometerCountDown(R.id.n_timer, true)
+        small.setChronometer(R.id.n_timer, base, null, true)
+
+        // Açık görünüm: sıradaki vakit + kalan süre + 6 vaktin tablosu
+        val big = RemoteViews(ctx.packageName, R.layout.notif_expanded)
+        big.setTextViewText(R.id.e_next_name, "${names[nx.idx]} · ${f(nx.idx)}")
+        big.setChronometerCountDown(R.id.e_timer, true)
+        big.setChronometer(R.id.e_timer, base, null, true)
+
+        val labelIds = intArrayOf(R.id.e_l0, R.id.e_l1, R.id.e_l2, R.id.e_l3, R.id.e_l4, R.id.e_l5)
+        val timeIds = intArrayOf(R.id.e_t0, R.id.e_t1, R.id.e_t2, R.id.e_t3, R.id.e_t4, R.id.e_t5)
         for (i in 0 until 6) {
-            big.append(if (i == nx.idx) "▶ " else "   ").append(names[i]).append("   ").append(f(i))
-            if (i < 5) big.append('\n')
+            big.setTextViewText(labelIds[i], if (i == nx.idx) "▸ ${names[i]}" else names[i])
+            big.setTextViewText(timeIds[i], f(i))
+            if (i == nx.idx) {
+                big.setTextColor(labelIds[i], ACCENT_TEXT)
+                big.setTextColor(timeIds[i], ACCENT_TEXT)
+            }
         }
 
         return Notification.Builder(ctx, CH_TIMES)
             .setSmallIcon(R.drawable.ic_stat)
-            .setContentTitle(title)
-            .setContentText(collapsedText)
+            .setContentTitle("${names[nx.idx]} · ${f(nx.idx)}")
             .setSubText(if (tomorrow) "${loc.name} · yarın" else loc.name)
-            .setStyle(
-                Notification.BigTextStyle()
-                    .setBigContentTitle("Sıradaki: ${names[nx.idx]} ·${f(nx.idx)}")
-                    .bigText(big.toString())
-            )
-            .setWhen(nx.timeMs)
-            .setShowWhen(true)
-            .setUsesChronometer(true)
-            .setChronometerCountDown(true)
+            .setStyle(Notification.DecoratedCustomViewStyle())
+            .setCustomContentView(small)
+            .setCustomBigContentView(big)
+            .setShowWhen(false)
             .setOngoing(true)
             .setAutoCancel(false)
             .setOnlyAlertOnce(true)
