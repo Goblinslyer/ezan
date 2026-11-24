@@ -18,6 +18,7 @@ object Notifier {
     const val ID_TIMES = 1
     const val ID_ADHAN = 2
     const val ID_ALERT = 3
+    const val ACTION_REFRESH = "app.ezanvakti.REFRESH_NOTIF"
 
     private const val ACCENT = 0xFF0B6B66.toInt()
 
@@ -41,19 +42,26 @@ object Notifier {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
 
+    private fun onDismiss(ctx: Context): PendingIntent = PendingIntent.getBroadcast(
+        ctx, 3, Intent(ctx, AdhanReceiver::class.java).setAction(ACTION_REFRESH),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+
     /** Bildirim panelindeki kalıcı vakit kartı. */
     fun buildTimes(ctx: Context): Notification {
         ensureChannels(ctx)
         val loc = Prefs.location(ctx)
         val now = System.currentTimeMillis()
-      val nx = Scheduler.next(ctx, now)
+        val nx = Scheduler.next(ctx, now)
         val times = DiyanetApi.getTimes(ctx, nx.date, loc.zone) ?: PrayerCalc.calc(nx.date, loc.lat, loc.lng).times
         val fmt = DateTimeFormatter.ofPattern("HH:mm").withZone(loc.zone)
         fun f(i: Int): String = if (times[i] > 0) fmt.format(Instant.ofEpochMilli(times[i])) else "—"
+
         val names = PrayerCalc.NAMES
         val tomorrow = nx.date.isAfter(LocalDate.now(loc.zone))
-        val title = "Sıradaki: ${names[nx.idx]} ${f(nx.idx)}"
-        val compact = (0 until 6).joinToString(" · ") { "${names[it]} ${f(it)}" }
+        val title = "Sıradaki: ${names[nx.idx]}"
+        val collapsedText = "Vakit saati: ${f(nx.idx)} · Diğer vakitler için aşağı çekin"
+
         val big = StringBuilder()
         for (i in 0 until 6) {
             big.append(if (i == nx.idx) "▶ " else "   ").append(names[i]).append("   ").append(f(i))
@@ -63,19 +71,25 @@ object Notifier {
         return Notification.Builder(ctx, CH_TIMES)
             .setSmallIcon(R.drawable.ic_stat)
             .setContentTitle(title)
-            .setContentText(compact)
+            .setContentText(collapsedText)
             .setSubText(if (tomorrow) "${loc.name} · yarın" else loc.name)
-            .setStyle(Notification.BigTextStyle().bigText(big.toString()))
+            .setStyle(
+                Notification.BigTextStyle()
+                    .setBigContentTitle("Sıradaki: ${names[nx.idx]} · ${f(nx.idx)}")
+                    .bigText(big.toString())
+            )
             .setWhen(nx.timeMs)
             .setShowWhen(true)
             .setUsesChronometer(true)
             .setChronometerCountDown(true)
             .setOngoing(true)
+            .setAutoCancel(false)
             .setOnlyAlertOnce(true)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .setCategory(Notification.CATEGORY_STATUS)
             .setColor(ACCENT)
             .setContentIntent(openApp(ctx))
+            .setDeleteIntent(onDismiss(ctx))
             .build()
     }
 
