@@ -75,7 +75,7 @@ object Notifier {
             .setSubText(if (tomorrow) "${loc.name} · yarın" else loc.name)
             .setStyle(
                 Notification.BigTextStyle()
-                    .setBigContentTitle("Sıradaki: ${names[nx.idx]} · ${f(nx.idx)}")
+                    .setBigContentTitle("Sıradaki: ${names[nx.idx]} ·${f(nx.idx)}")
                     .bigText(big.toString())
             )
             .setWhen(nx.timeMs)
